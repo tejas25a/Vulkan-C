@@ -1,0 +1,19 @@
+# Binary
+draw_tha_Triangle
+
+# Compiled shaders
+shaders/vert.spv
+shaders/frag.spv
+
+# Build metadata
+compile_commands.json
+
+# Valgrind output
+vgcore.*
+core
+
+# Editor 
+*.swp
+
+#cache
+.cache/
