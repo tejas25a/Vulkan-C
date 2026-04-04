@@ -17,3 +17,6 @@ core
 
 #cache
 .cache/
+
+#gitignore
+.gitignore
