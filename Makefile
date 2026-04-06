@@ -3,7 +3,7 @@ SHADER_DIR := shaders/
 
 INPUT_FILE := $(SRC_DIR)main.c 
 TARGET := draw_tha_Triangle
-LDFLAGS := -lglfw -lvulkan
+LDFLAGS := -lglfw -lvulkan -lcglm
 CFLAGS := -g
 NDEBUG := -DNDEBUG
 

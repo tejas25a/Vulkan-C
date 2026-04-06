@@ -14,9 +14,13 @@ core
 
 # Editor 
 *.swp
+src/*.swp
 
 #cache
 .cache/
 
 #gitignore
 .gitignore
+
+#backup
+src/*.bak

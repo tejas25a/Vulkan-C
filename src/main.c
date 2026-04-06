@@ -1,8 +1,8 @@
-#include <sys/types.h>
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 
 #include <GLFW/glfw3.h>
+#include <cglm/cglm.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,6 +60,10 @@ VkFence *inFlightFence;
 const int MAX_FRAME_IN_FLIGHT = 2;
 uint32_t currentFrame = 0;
 int framebufferResized = false;
+VkBuffer VertexBuffer;
+VkDeviceMemory vertexBufferMemory;
+VkBuffer indexBuffer;
+VkDeviceMemory indexBufferMemory;
 
 VkDynamicState *dynamicStates;
 
@@ -82,6 +86,42 @@ typedef struct FileBuffer {
   char *data;
   size_t size;
 } FileBuffer;
+
+typedef struct Vertex {
+  vec2 pos;
+  vec3 color;
+} Vertex;
+
+const Vertex vertices[] = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+                           {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+                           {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+                           {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}}};
+
+const uint16_t indices[] = {0, 1, 2, 2, 3, 0};
+
+VkVertexInputBindingDescription getBindingDescription() {
+  VkVertexInputBindingDescription bindingDescription = {0};
+  bindingDescription.binding = 0;
+  bindingDescription.stride = sizeof(Vertex);
+  bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+  return bindingDescription;
+}
+
+VkVertexInputAttributeDescription *getAttributeDescription() {
+  VkVertexInputAttributeDescription *attributeDescription =
+      malloc(2 * sizeof(VkVertexInputAttributeDescription));
+  attributeDescription[0].binding = 0;
+  attributeDescription[0].location = 0;
+  attributeDescription[0].format = VK_FORMAT_R32G32_SFLOAT;
+  attributeDescription[0].offset = offsetof(Vertex, pos);
+
+  attributeDescription[1].binding = 0;
+  attributeDescription[1].location = 1;
+  attributeDescription[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+  attributeDescription[1].offset = offsetof(Vertex, color);
+
+  return attributeDescription;
+}
 
 FileBuffer readFile(const char *filename) {
   FileBuffer result = {NULL, 0};
@@ -669,15 +709,19 @@ void createGraphicsPipeline() {
   dynamicState.dynamicStateCount = dynamicstatesCount;
   dynamicState.pDynamicStates = dynamicStates;
 
+  VkVertexInputBindingDescription bindingDescription = getBindingDescription();
+  VkVertexInputAttributeDescription *attributeDescription =
+      getAttributeDescription();
+
   VkPipelineVertexInputStateCreateInfo vertexInputInfo = {0};
   vertexInputInfo.sType =
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
   vertexInputInfo.pNext = NULL;
   vertexInputInfo.flags = 0;
-  vertexInputInfo.vertexBindingDescriptionCount = 0;
-  vertexInputInfo.pVertexBindingDescriptions = NULL;
-  vertexInputInfo.vertexAttributeDescriptionCount = 0;
-  vertexInputInfo.pVertexAttributeDescriptions = NULL;
+  vertexInputInfo.vertexBindingDescriptionCount = 1;
+  vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+  vertexInputInfo.vertexAttributeDescriptionCount = 2;
+  vertexInputInfo.pVertexAttributeDescriptions = attributeDescription;
 
   VkPipelineInputAssemblyStateCreateInfo inputAssembly = {0};
   inputAssembly.sType =
@@ -806,6 +850,8 @@ void createGraphicsPipeline() {
     fprintf(stderr, "Failed to create graphics pipeline!\n");
   }
   printf("Created graphics pipeline\n");
+
+  free(attributeDescription);
 }
 
 void createframebuffers() {
@@ -891,6 +937,166 @@ void createCommandPool() {
   printf("Created command pool successfully\n");
 }
 
+uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+  VkPhysicalDeviceMemoryProperties memProperties;
+  vkGetPhysicalDeviceMemoryProperties(dev, &memProperties);
+
+  for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+    if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags &
+                                    properties) == properties) {
+      return i;
+    }
+  }
+  fprintf(stderr, "Failed to find suitable memory type!\n");
+  return UINT32_MAX;
+}
+
+void createBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                  VkMemoryPropertyFlags properties, VkBuffer *buffer,
+                  VkDeviceMemory *bufferMemory) {
+  VkBufferCreateInfo bufferInfo = {0};
+  bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  bufferInfo.flags = 0;
+  bufferInfo.pNext = NULL;
+  bufferInfo.size = size;
+  bufferInfo.usage = usage;
+  bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  bufferInfo.queueFamilyIndexCount = 0;
+  bufferInfo.pQueueFamilyIndices = NULL;
+
+  if (vkCreateBuffer(Ldevice, &bufferInfo, NULL, buffer) != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create vertex buffer!\n");
+  }
+  printf("Created Vertex buffer successfully\n");
+
+  VkMemoryRequirements memRequirement;
+  vkGetBufferMemoryRequirements(Ldevice, *buffer, &memRequirement);
+
+  VkMemoryAllocateInfo allocInfo = {0};
+  allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+  allocInfo.pNext = NULL;
+  allocInfo.allocationSize = memRequirement.size;
+  allocInfo.memoryTypeIndex =
+      findMemoryType(memRequirement.memoryTypeBits, properties);
+
+  if (vkAllocateMemory(Ldevice, &allocInfo, NULL, bufferMemory) != VK_SUCCESS) {
+    fprintf(stderr, "Failed to allocate buffer memory");
+  }
+
+  printf("Allocated buffer memory\n");
+
+  vkBindBufferMemory(Ldevice, *buffer, *bufferMemory, 0);
+  printf("Binded buffer memory\n");
+}
+
+void copyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size) {
+  VkCommandBufferAllocateInfo allocInfo = {0};
+  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+  allocInfo.pNext = NULL;
+  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  allocInfo.commandPool = commandPool;
+  allocInfo.commandBufferCount = 1;
+
+  VkCommandBuffer commandBuffer;
+  vkAllocateCommandBuffers(Ldevice, &allocInfo, &commandBuffer);
+
+  VkCommandBufferBeginInfo beginInfo = {0};
+  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+  beginInfo.pNext = NULL;
+  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  beginInfo.pInheritanceInfo = NULL;
+
+  vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+  VkBufferCopy copyregion = {0};
+  copyregion.srcOffset = 0;
+  copyregion.dstOffset = 0;
+  copyregion.size = size;
+  vkCmdCopyBuffer(commandBuffer, srcBuffer, dstBuffer, 1, &copyregion);
+
+  vkEndCommandBuffer(commandBuffer);
+
+  VkSubmitInfo submitInfo = {0};
+  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+  submitInfo.pNext = NULL;
+  submitInfo.commandBufferCount = 1;
+  submitInfo.pCommandBuffers = &commandBuffer;
+  submitInfo.signalSemaphoreCount = 0;
+  submitInfo.waitSemaphoreCount = 0;
+  submitInfo.pSignalSemaphores = NULL;
+  submitInfo.pWaitSemaphores = NULL;
+  submitInfo.pWaitDstStageMask = NULL;
+
+  // use fenece for more data transfers and give driver to optimise
+  vkQueueSubmit(graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE);
+  vkQueueWaitIdle(graphicsQueue);
+
+  vkFreeCommandBuffers(Ldevice, commandPool, 1, &commandBuffer);
+}
+
+void createVertexBuffer() {
+
+  VkDeviceSize bufferSize = sizeof(vertices);
+
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+
+  createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+               &stagingBuffer, &stagingBufferMemory);
+
+  void *data;
+  vkMapMemory(Ldevice, stagingBufferMemory, 0, bufferSize, 0, &data);
+  memcpy(data, vertices, bufferSize);
+  vkUnmapMemory(Ldevice, stagingBufferMemory);
+  printf("filled staging buffer successfully for vertex buffer\n");
+
+  createBuffer(
+      bufferSize,
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &VertexBuffer, &vertexBufferMemory);
+
+  printf("Created vertex buffer\n");
+
+  copyBuffer(stagingBuffer, VertexBuffer, bufferSize);
+  printf("Copied data from staging buffer to vertex buffer\n");
+
+  vkDestroyBuffer(Ldevice, stagingBuffer, NULL);
+  vkFreeMemory(Ldevice, stagingBufferMemory, NULL);
+}
+
+void createIndexBuffer() {
+  VkDeviceSize bufferSize = sizeof(indices);
+
+  VkBuffer stagingBuffer;
+  VkDeviceMemory stagingBufferMemory;
+
+  createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+               &stagingBuffer, &stagingBufferMemory);
+
+  void *data;
+  vkMapMemory(Ldevice, stagingBufferMemory, 0, bufferSize, 0, &data);
+  memcpy(data, indices, bufferSize);
+  vkUnmapMemory(Ldevice, stagingBufferMemory);
+  printf("filled staging buffer successfully for index buffer\n");
+
+  createBuffer(
+      bufferSize,
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &indexBuffer, &indexBufferMemory);
+
+  printf("Created index buffer\n");
+
+  copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+  printf("Copied data from staging buffer to index buffer\n");
+
+  vkDestroyBuffer(Ldevice, stagingBuffer, NULL);
+  vkFreeMemory(Ldevice, stagingBufferMemory, NULL);
+}
+
 void createCommandBuffer() {
   commandBuffers = malloc(MAX_FRAME_IN_FLIGHT * sizeof(VkCommandBuffer));
   VkCommandBufferAllocateInfo allocInfo = {0};
@@ -936,6 +1142,11 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
   vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     graphicsPipeline);
 
+  VkBuffer VertexBuffers[] = {VertexBuffer};
+  VkDeviceSize offsets[] = {0};
+  vkCmdBindVertexBuffers(commandBuffer, 0, 1, VertexBuffers, offsets);
+  vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
   VkViewport viewport = {0};
   viewport.x = 0.0f;
   viewport.y = 0.0f;
@@ -951,7 +1162,8 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
   scissor.extent = swapChainExtent;
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-  vkCmdDraw(commandBuffer, 3, 1, 0, 0);
+  vkCmdDrawIndexed(commandBuffer,
+                   (uint32_t)sizeof(indices) / sizeof(indices[0]), 1, 0, 0, 0);
 
   vkCmdEndRenderPass(commandBuffer);
   if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1072,6 +1284,10 @@ void initvulkan() {
 
   createCommandPool();
 
+  createVertexBuffer();
+
+  createIndexBuffer();
+
   createCommandBuffer();
 
   createSyncObjects();
@@ -1180,6 +1396,12 @@ void mainloop() {
 void cleanup() {
   vkDeviceWaitIdle(Ldevice);
   cleanupSwpaChain();
+
+  vkDestroyBuffer(Ldevice, indexBuffer, NULL);
+  vkFreeMemory(Ldevice, indexBufferMemory, NULL);
+
+  vkDestroyBuffer(Ldevice, VertexBuffer, NULL);
+  vkFreeMemory(Ldevice, vertexBufferMemory, NULL);
 
   for (int i = 0; i < MAX_FRAME_IN_FLIGHT; i++) {
     vkDestroySemaphore(Ldevice, imageAvailableSemaphores[i], NULL);
