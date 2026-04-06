@@ -105,7 +105,6 @@ make clean
 ## Notes
 
 - **Validation layers** print helpful error messages when something is used incorrectly. They are enabled automatically in debug builds and disabled in release builds.
-- The project uses a **staging buffer** — vertex data is first written to CPU-accessible memory, then copied to fast GPU-only memory for efficient rendering.
 
 ---
 
