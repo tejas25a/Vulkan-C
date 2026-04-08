@@ -1,4 +1,3 @@
-#include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 
 #include <GLFW/glfw3.h>
@@ -7,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define true 1
 #define false 0
@@ -49,6 +49,7 @@ VkImageView *swapChainImageViews;
 VkShaderModule vertShaderModule;
 VkShaderModule fragShaderModule;
 VkRenderPass renderPass;
+VkDescriptorSetLayout descriptorSetLayout;
 VkPipelineLayout pipelineLayout;
 VkPipeline graphicsPipeline;
 VkFramebuffer *swapChainFramebuffers;
@@ -64,6 +65,11 @@ VkBuffer VertexBuffer;
 VkDeviceMemory vertexBufferMemory;
 VkBuffer indexBuffer;
 VkDeviceMemory indexBufferMemory;
+VkBuffer *uniformBuffers;
+VkDeviceMemory *uniformBuffersMemory;
+void **uniformBuffersMapped;
+VkDescriptorPool descriptorPool;
+VkDescriptorSet *descriptorSets;
 
 VkDynamicState *dynamicStates;
 
@@ -91,6 +97,12 @@ typedef struct Vertex {
   vec2 pos;
   vec3 color;
 } Vertex;
+
+typedef struct UniformBufferObject {
+  mat4 model;
+  mat4 view;
+  mat4 proj;
+} UniformBufferObject;
 
 const Vertex vertices[] = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
                            {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
@@ -252,8 +264,7 @@ int checkDeviceExtensionSupport(VkPhysicalDevice device) {
     }
 
     if (!found_flag) {
-      printf("Extension not found: %s\n",
-             deviceExtensions[i]); // ✅ show which one
+      printf("Extension not found: %s\n", deviceExtensions[i]);
       return false;
     }
   }
@@ -662,9 +673,36 @@ void createRenderPass() {
   printf("Created render pass successfully\n");
 }
 
+void createaDescriptorSetLayout() {
+  VkDescriptorSetLayoutBinding uboLayoutBinding = {0};
+  uboLayoutBinding.binding = 0;
+  uboLayoutBinding.descriptorCount = 1;
+  uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  uboLayoutBinding.pImmutableSamplers = NULL;
+
+  VkDescriptorSetLayoutCreateInfo layoutInfo = {0};
+  layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  layoutInfo.pNext = NULL;
+  layoutInfo.flags = 0;
+  layoutInfo.bindingCount = 1;
+  layoutInfo.pBindings = &uboLayoutBinding;
+
+  if (vkCreateDescriptorSetLayout(Ldevice, &layoutInfo, NULL,
+                                  &descriptorSetLayout) != VK_SUCCESS) {
+    fprintf(stderr, "Failed to create descriptor set layout!\n");
+  }
+  printf("created descriptor set layout successfully\n");
+}
+
 void createGraphicsPipeline() {
   FileBuffer vertShaderCode = readFile("shaders/vert.spv");
   FileBuffer fragShaderCode = readFile("shaders/frag.spv");
+
+  if (!vertShaderCode.data || !fragShaderCode.data) {
+    fprintf(stderr, "Shader load failed\n");
+    exit(1);
+  }
 
   vertShaderModule = createShaderModule(vertShaderCode);
   fragShaderModule = createShaderModule(fragShaderCode);
@@ -762,7 +800,7 @@ void createGraphicsPipeline() {
   rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
   rasterizer.lineWidth = 1.0f;
   rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-  rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+  rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
   rasterizer.depthBiasEnable = VK_FALSE;
   rasterizer.depthBiasConstantFactor = 0.0f;
   rasterizer.depthBiasClamp = 0.0f;
@@ -812,8 +850,8 @@ void createGraphicsPipeline() {
   pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
   pipelineLayoutInfo.pNext = NULL;
   pipelineLayoutInfo.flags = 0;
-  pipelineLayoutInfo.setLayoutCount = 0;
-  pipelineLayoutInfo.pSetLayouts = NULL;
+  pipelineLayoutInfo.setLayoutCount = 1;
+  pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
   pipelineLayoutInfo.pushConstantRangeCount = 0;
   pipelineLayoutInfo.pPushConstantRanges = NULL;
 
@@ -1097,6 +1135,108 @@ void createIndexBuffer() {
   vkFreeMemory(Ldevice, stagingBufferMemory, NULL);
 }
 
+void createUniformBuffers() {
+  VkDeviceSize bufferSize = sizeof(UniformBufferObject);
+
+  uniformBuffers = malloc(MAX_FRAME_IN_FLIGHT * sizeof(VkBuffer));
+  if (!uniformBuffers) {
+    fprintf(stderr, "Failed to allocate uniformBuffers array!\n");
+  }
+
+  uniformBuffersMemory = malloc(MAX_FRAME_IN_FLIGHT * sizeof(VkDeviceMemory));
+  if (!uniformBuffers) {
+    fprintf(stderr, "Failed to allocate uniformBuffersMemory array!\n");
+  }
+
+  uniformBuffersMapped = malloc(MAX_FRAME_IN_FLIGHT * sizeof(void *));
+  if (!uniformBuffers) {
+    fprintf(stderr, "Failed to allocate uniformBuffersMapped array!\n");
+  }
+
+  for (size_t i = 0; i < MAX_FRAME_IN_FLIGHT; i++) {
+    createBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+                 &uniformBuffers[i], &uniformBuffersMemory[i]);
+
+    vkMapMemory(Ldevice, uniformBuffersMemory[i], 0, bufferSize, 0,
+                &uniformBuffersMapped[i]);
+  }
+}
+
+void createDescriptorPool() {
+  VkDescriptorPoolSize poolSize = {0};
+  poolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  poolSize.descriptorCount = (uint32_t)MAX_FRAME_IN_FLIGHT;
+
+  VkDescriptorPoolCreateInfo poolInfo = {0};
+  poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  poolInfo.pNext = NULL;
+  poolInfo.flags = 0;
+  poolInfo.poolSizeCount = 1;
+  poolInfo.pPoolSizes = &poolSize;
+  poolInfo.maxSets = (uint32_t)MAX_FRAME_IN_FLIGHT;
+
+  if (vkCreateDescriptorPool(Ldevice, &poolInfo, NULL, &descriptorPool) !=
+      VK_SUCCESS) {
+    fprintf(stderr, "Failed to create descriptor pool\n");
+  }
+  printf("Created descriptor pool successfully\n");
+}
+
+void createDescriptorSet() {
+  VkDescriptorSetLayout *layouts =
+      malloc(MAX_FRAME_IN_FLIGHT * sizeof(VkDescriptorSetLayout));
+
+  if (!layouts) {
+    fprintf(stderr, "Failed to allocate layout!\n");
+  }
+
+  for (uint32_t i = 0; i < MAX_FRAME_IN_FLIGHT; i++) {
+    layouts[i] = descriptorSetLayout;
+  }
+
+  VkDescriptorSetAllocateInfo allocInfo = {0};
+  allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  allocInfo.pNext = NULL;
+  allocInfo.descriptorPool = descriptorPool;
+  allocInfo.descriptorSetCount = (uint32_t)MAX_FRAME_IN_FLIGHT;
+  allocInfo.pSetLayouts = layouts;
+
+  descriptorSets = malloc(MAX_FRAME_IN_FLIGHT * sizeof(VkDescriptorSet));
+
+  if (!descriptorSets) {
+    fprintf(stderr, "Failed to allocate descriptorSets\n");
+  }
+
+  if (vkAllocateDescriptorSets(Ldevice, &allocInfo, descriptorSets) !=
+      VK_SUCCESS) {
+    fprintf(stderr, "Failed to allocate descriptor sets!\n");
+  }
+  printf("Allocated descriptor sets successfully\n");
+  free(layouts);
+
+  for (size_t i = 0; i < MAX_FRAME_IN_FLIGHT; i++) {
+    VkDescriptorBufferInfo bufferInfo = {0};
+    bufferInfo.buffer = uniformBuffers[i];
+    bufferInfo.offset = 0;
+    bufferInfo.range = sizeof(UniformBufferObject);
+    VkWriteDescriptorSet descriptorWrite = {0};
+    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptorWrite.pNext = NULL;
+    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptorWrite.descriptorCount = 1;
+    descriptorWrite.pBufferInfo = &bufferInfo;
+    descriptorWrite.pImageInfo = NULL;
+    descriptorWrite.pTexelBufferView = NULL;
+    descriptorWrite.dstArrayElement = 0;
+    descriptorWrite.dstBinding = 0;
+    descriptorWrite.dstSet = descriptorSets[i];
+
+    vkUpdateDescriptorSets(Ldevice, 1, &descriptorWrite, 0, NULL);
+  }
+}
+
 void createCommandBuffer() {
   commandBuffers = malloc(MAX_FRAME_IN_FLIGHT * sizeof(VkCommandBuffer));
   VkCommandBufferAllocateInfo allocInfo = {0};
@@ -1161,6 +1301,10 @@ void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex) {
   scissor.offset.y = 0;
   scissor.extent = swapChainExtent;
   vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+  vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          pipelineLayout, 0, 1, &descriptorSets[currentFrame],
+                          0, NULL);
 
   vkCmdDrawIndexed(commandBuffer,
                    (uint32_t)sizeof(indices) / sizeof(indices[0]), 1, 0, 0, 0);
@@ -1278,6 +1422,8 @@ void initvulkan() {
 
   createRenderPass();
 
+  createaDescriptorSetLayout();
+
   createGraphicsPipeline();
 
   createframebuffers();
@@ -1287,6 +1433,12 @@ void initvulkan() {
   createVertexBuffer();
 
   createIndexBuffer();
+
+  createUniformBuffers();
+
+  createDescriptorPool();
+
+  createDescriptorSet();
 
   createCommandBuffer();
 
@@ -1309,12 +1461,48 @@ void initwindow() {
   glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
   window = glfwCreateWindow(WIDTH, HEIGHT, "Window", NULL, NULL);
-  glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
   if (!window) {
     printf("Failed to create Window");
     return;
   }
+
+  glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+}
+
+void updateUniformbuffers(uint32_t currentImage) {
+  static struct timespec startTime;
+  static int initialized = 0;
+
+  if (!initialized) {
+    clock_gettime(CLOCK_MONOTONIC, &startTime);
+    initialized = 1;
+  }
+
+  struct timespec currentTime;
+  clock_gettime(CLOCK_MONOTONIC, &currentTime);
+  float time = (currentTime.tv_sec - startTime.tv_sec) +
+               (currentTime.tv_nsec - startTime.tv_nsec) / 1e9f;
+
+  mat4 model;
+  glm_mat4_identity(model);
+
+  vec3 axis = {0.0f, 0.0f, 1.0f};
+  UniformBufferObject ubo = {0};
+  glm_rotate(model, time * glm_rad(90.0f), axis);
+  glm_mat4_copy(model, ubo.model);
+
+  vec3 eye = {2.0f, 2.0f, 2.0f};
+  vec3 center = {0.0f, 0.0f, 0.0f};
+  vec3 up = {0.0f, 0.0f, 1.0f};
+  glm_lookat(eye, center, up, ubo.view);
+
+  glm_perspective(glm_rad(45.0f),
+                  swapChainExtent.width / (float)swapChainExtent.height, 0.1f,
+                  10.0f, ubo.proj);
+  ubo.proj[1][1] *= -1;
+
+  memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 }
 
 void drawFrame() {
@@ -1337,6 +1525,7 @@ void drawFrame() {
 
   vkResetFences(Ldevice, 1, &inFlightFence[currentFrame]);
 
+  updateUniformbuffers(currentFrame);
   vkResetCommandBuffer(commandBuffers[currentFrame], 0);
   recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
@@ -1396,6 +1585,18 @@ void mainloop() {
 void cleanup() {
   vkDeviceWaitIdle(Ldevice);
   cleanupSwpaChain();
+
+  for (size_t i = 0; i < MAX_FRAME_IN_FLIGHT; i++) {
+    vkDestroyBuffer(Ldevice, uniformBuffers[i], NULL);
+    vkFreeMemory(Ldevice, uniformBuffersMemory[i], NULL);
+  }
+
+  free(uniformBuffers);
+  free(uniformBuffersMemory);
+  free(uniformBuffersMapped);
+  vkDestroyDescriptorPool(Ldevice, descriptorPool, NULL);
+  free(descriptorSets);
+  vkDestroyDescriptorSetLayout(Ldevice, descriptorSetLayout, NULL);
 
   vkDestroyBuffer(Ldevice, indexBuffer, NULL);
   vkFreeMemory(Ldevice, indexBufferMemory, NULL);
