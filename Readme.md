@@ -8,14 +8,17 @@ A learning project that explores the Vulkan graphics API, written entirely in C.
 
 **Vulkan** is a low-level graphics API made by the Khronos Group. Unlike older APIs like OpenGL, Vulkan gives the programmer direct control over the GPU — which makes it faster and more predictable, but also more work to set up. This project is a from-scratch implementation of the classic "hello world" of graphics programming.
 
+**Why C instead of C++?** The official tutorial uses C++, but Vulkan itself is a C API. This project proves you don't need C++ to use it.
+
 ---
 
 ## What it does
 
-- Opens a window and renders a coloured shape using the GPU
+- Opens a window and renders a textured quad using the GPU
 - Sets up the full Vulkan rendering pipeline from scratch — instance, device, swapchain, shaders, framebuffers, command buffers, and synchronization
+- Loads and applies a BMP texture using a custom image library (`img_lib`) written from scratch — no third-party image loaders
 - Handles window resizing gracefully
-- Uses a staging buffer to upload geometry to fast GPU memory
+- Uses a staging buffer to upload geometry and texture data to fast GPU memory
 - Runs validation layers in debug mode to catch mistakes early
 
 ---
@@ -62,11 +65,17 @@ valgrind --version                           # memory checker
 │   ├── shader.frag       # fragment shader source (GLSL)
 │   ├── vert.spv          # compiled vertex shader (generated)
 │   └── frag.spv          # compiled fragment shader (generated)
-└── src/
-    └── main.c            # all application code
+├── src/
+│   ├── main.c            # all Vulkan application code
+│   ├── img_lib.c         # custom BMP image loader
+│   └── img_lib.h         # image loader header
+└── texture/
+    └── texture.bmp       # texture image (original photo, all rights reserved by author)
 ```
 
 Shaders are small programs that run on the GPU. The vertex shader positions each point of the shape, and the fragment shader decides the colour of each pixel. They are written in GLSL and compiled to SPIR-V (`.spv`) before use.
+
+`img_lib` is a lightweight BMP loader written from scratch for this project. It supports 8, 24, and 32-bit BMP files and outputs raw RGBA pixel data ready for direct upload to a Vulkan staging buffer. No third-party image libraries are used.
 
 ---
 
@@ -90,6 +99,11 @@ make test
 ./draw_tha_Triangle
 ```
 
+**Test the image loader standalone:**
+```bash
+make imgtest
+```
+
 **Check for memory leaks:**
 ```bash
 make memtest
@@ -105,6 +119,7 @@ make clean
 ## Notes
 
 - **Validation layers** print helpful error messages when something is used incorrectly. They are enabled automatically in debug builds and disabled in release builds.
+- The texture image (`texture/texture.bmp`) is an original photo taken by the author. All rights reserved.
 
 ---
 
