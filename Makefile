@@ -3,6 +3,7 @@ SHADER_DIR := shaders/
 
 INPUT_FILE := $(SRC_DIR)main.c 
 IMG_LIB := $(SRC_DIR)img_lib.c
+OBJ_LIB := $(SRC_DIR)obj_lib.c
 TARGET := draw_tha_Triangle
 LDFLAGS := -lglfw -lvulkan -lcglm -lm
 CFLAGS := -g
@@ -15,10 +16,10 @@ VERT_OUTPUT := $(SHADER_DIR)vert.spv
 FRAG_OUTPUT := $(SHADER_DIR)frag.spv
 
 debug: $(SRC_DIR)main.c 
-	cc $(CFLAGS) $(INPUT_FILE) $(IMG_LIB) -o $(TARGET) $(LDFLAGS)
+	cc $(CFLAGS) $(INPUT_FILE) $(IMG_LIB) $(OBJ_LIB) -o $(TARGET) $(LDFLAGS)
 
-release: $(SRC_DIR)main.c $(BUILD_DIR)
-	cc $(NDEBUG) $(INPUT_FILE) $(IMG_LIB) -o $(TARGET) $(LDFLAGS)
+release: $(SRC_DIR)main.c
+	cc $(NDEBUG) $(INPUT_FILE) $(IMG_LIB) $(OBJ_LIB) -o $(TARGET) $(LDFLAGS)
 
 test: $(TARGET) 
 	./$(TARGET)   
