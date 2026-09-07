@@ -163,7 +163,7 @@ FileBuffer readFile(const char *filename) {
 
   fseek(file, 0, SEEK_END);
   result.size = ftell(file);
-  rewind(file); // ssek beginning
+  rewind(file); // seek beginning
 
   result.data = malloc(result.size);
   if (!result.data) {
@@ -1830,7 +1830,7 @@ void initvulkan() {
   VkExtensionProperties extensions[extensionCount];
 
   vkEnumerateInstanceExtensionProperties(NULL, &extensionCount, extensions);
-  //* prints all extensions name and version
+  // prints all extensions name and version
   // iterating over array
   printf("Available extensions: \n\n");
   printf("Extension Name\t\t\t\tversion\n");
