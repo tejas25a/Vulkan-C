@@ -14,7 +14,9 @@ core
 
 # Editor 
 *.swp
+*.orig
 src/*.swp
+src/*.orig
 
 #cache
 .cache/

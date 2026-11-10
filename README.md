@@ -27,25 +27,45 @@ A learning project that explores the Vulkan graphics API, written entirely in C.
 
 These are the tools and libraries needed to build and run the project.
 
-| Dependency | Version used | What it does |
-|---|---|---|
-| [Vulkan SDK](https://vulkan.lunarg.com/) | 1.3.x | The core graphics API and validation tools |
-| [GLFW](https://www.glfw.org/) | 3.3.x | Creates the window and connects it to Vulkan |
-| [glslc](https://github.com/google/shaderc) | 2024.x | Compiles shader code into a format the GPU understands |
-| [cglm](https://github.com/recp/cglm) | 0.9.x | Math library for vectors and matrices |
-| GCC / Clang | 13.x / 16.x | C compiler |
+| Dependency                                 | Version used | What it does                                           |
+| ------------------------------------------ | ------------ | ------------------------------------------------------ |
+| [Vulkan SDK](https://vulkan.lunarg.com/)   | 1.3.x+       | The core graphics API and validation tools             |
+| [GLFW](https://www.glfw.org/)              | 3.3.x        | Creates the window and connects it to Vulkan           |
+| [glslc](https://github.com/google/shaderc) | 2024.x       | Compiles shader code into a format the GPU understands |
+| [cglm](https://github.com/recp/cglm)       | 0.9.x        | Math library for vectors and matrices                  |
+| GCC / Clang                                | 13.x / 16.x  | C compiler                                             |
+
+You also need a Vulkan driver for your GPU (Mesa's `radeon`, `intel` or `nouveau` drivers, or the proprietary NVIDIA driver).
 
 ### Installing on Arch Linux
 
-```bash
+```
 sudo pacman -S glfw-wayland vulkan-tools vulkan-validation-layers shaderc cglm
 ```
 
 > Use `glfw-x11` instead of `glfw-wayland` if you are on X11.
 
+### Installing on Void Linux
+
+```
+sudo xbps-install -S base-devel pkg-config glfw-devel cglm-devel shaderc \
+    vulkan-loader vulkan-loader-devel Vulkan-Headers Vulkan-Tools \
+    Vulkan-ValidationLayers
+```
+
+Then install the Vulkan driver for your GPU (pick one):
+
+```
+sudo xbps-install -S mesa-vulkan-radeon    # AMD
+sudo xbps-install -S mesa-vulkan-intel     # Intel
+sudo xbps-install -S mesa-vulkan-nouveau   # NVIDIA (open source driver)
+```
+
+> Package names on Void are case-sensitive: the Khronos packages are capitalised (`Vulkan-Headers`, `Vulkan-Tools`, `Vulkan-ValidationLayers`), the loader is not (`vulkan-loader`). If a package is not found, check with `xbps-query -Rs <name>`.
+
 ### Checking your installed versions
 
-```bash
+```
 glslc --version                              # shader compiler
 vulkaninfo | grep "Vulkan Instance Version"  # Vulkan runtime
 pkg-config --modversion glfw3               # GLFW
@@ -59,6 +79,7 @@ valgrind --version                           # memory checker
 
 ```
 .
+├── LICENSE
 ├── Makefile
 ├── shaders/
 │   ├── shader.vert       # vertex shader source (GLSL)
@@ -82,35 +103,41 @@ Shaders are small programs that run on the GPU. The vertex shader positions each
 ## Building and Running
 
 **Step 1 — Compile the shaders** (only needed once, or when shaders change):
-```bash
+
+```
 make shader
 ```
 
 **Step 2 — Build the application:**
-```bash
+
+```
 make debug      # with error checking and validation (recommended while learning)
 make release    # optimised build without validation
 ```
 
 **Step 3 — Run it:**
-```bash
+
+```
 make test
 # or directly:
 ./draw_tha_Triangle
 ```
 
 **Test the image loader standalone:**
-```bash
+
+```
 make imgtest
 ```
 
 **Check for memory leaks:**
-```bash
+
+```
 make memtest
 ```
 
 **Remove all build outputs:**
-```bash
+
+```
 make clean
 ```
 
@@ -120,6 +147,14 @@ make clean
 
 - **Validation layers** print helpful error messages when something is used incorrectly. They are enabled automatically in debug builds and disabled in release builds.
 - The texture image (`texture/texture.bmp`) is an original photo taken by the author. All rights reserved.
+
+---
+
+## License
+
+The source code in this repository is released under the [MIT License](LICENSE).
+
+The texture image (`texture/texture.bmp`) is **not** covered by the MIT License. It is an original photo by the author, all rights reserved. Replace it with your own image if you reuse this project.
 
 ---
 
