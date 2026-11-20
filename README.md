@@ -35,7 +35,7 @@ These are the tools and libraries needed to build and run the project.
 | [cglm](https://github.com/recp/cglm)       | 0.9.x        | Math library for vectors and matrices                  |
 | GCC / Clang                                | 13.x / 16.x  | C compiler                                             |
 
-You also need a Vulkan driver for your GPU (Mesa's `radeon`, `intel` or `nouveau` drivers, or the proprietary NVIDIA driver).
+You also need a Vulkan driver for your GPU (Mesa's `radeon`, `intel` or `nouveau` drivers, or the proprietary NVIDIA driver). On macOS the driver is [MoltenVK](https://github.com/KhronosGroup/MoltenVK), which translates Vulkan to Metal (see the macOS section below).
 
 ### Installing on Arch Linux
 
@@ -63,6 +63,60 @@ sudo xbps-install -S mesa-vulkan-nouveau   # NVIDIA (open source driver)
 
 > Package names on Void are case-sensitive: the Khronos packages are capitalised (`Vulkan-Headers`, `Vulkan-Tools`, `Vulkan-ValidationLayers`), the loader is not (`vulkan-loader`). If a package is not found, check with `xbps-query -Rs <name>`.
 
+### Installing on macOS (Apple Silicon, Homebrew)
+
+The LunarG Vulkan SDK is **not required**. Everything below comes from Homebrew.
+
+**1. Install the packages**
+
+```
+brew install glfw cglm shaderc glslang molten-vk vulkan-headers \
+    vulkan-loader vulkan-tools vulkan-validationlayers
+```
+
+`shaderc` provides `glslc` and `glslang` provides `glslangValidator`. Either one can compile the shaders.
+
+`molten-vk` is the Vulkan driver (it runs Vulkan on top of Metal), and `vulkan-validationlayers` provides the validation layer. The validation layer is a separate package from the loader, so installing the loader alone is not enough.
+
+**2. Set the environment variables**
+
+Add these lines to `~/.zshrc`, then open a new terminal (or run `source ~/.zshrc`):
+
+```
+export VK_LAYER_PATH=/opt/homebrew/share/vulkan/explicit_layer.d
+export DYLD_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_LIBRARY_PATH
+```
+
+- `VK_LAYER_PATH` tells the Vulkan loader where to find the layer manifest (`VkLayer_khronos_validation.json`).
+- `DYLD_LIBRARY_PATH` lets the loader open the layer library itself. The manifest refers to `libVkLayer_khronos_validation.dylib` by bare name, so without this the loader finds the layer but fails to load it.
+- Run the program from your own terminal. macOS removes `DYLD_*` variables for programs started through system binaries such as `/bin/sh` or `/usr/bin/env`, so some IDE run buttons and wrapper scripts will not pass it on.
+
+If Homebrew installed the library somewhere else, find it and use that directory instead:
+
+```
+find /opt/homebrew -name "libVkLayer_khronos_validation*" 2>/dev/null
+```
+
+On an Intel Mac, replace `/opt/homebrew` with `/usr/local`.
+
+**3. Check that the loader sees everything**
+
+```
+vulkaninfo --summary                 # should list the Apple GPU through MoltenVK
+vulkaninfo --summary | grep -i validation
+VK_LOADER_DEBUG=error,warn,layer ./draw_tha_Triangle 2>&1 | grep -i -E "validation|dlopen|fail"
+```
+
+**4. Portability requirements in the code**
+
+MoltenVK is a "portability" driver, so Vulkan hides it unless the program opts in. On macOS the code must do all of the following (the project guards them with `#ifdef __APPLE__`):
+
+- Enable the instance extensions `VK_KHR_portability_enumeration` and `VK_KHR_get_physical_device_properties2`, in addition to the extensions GLFW asks for.
+- Set `VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR` in `VkInstanceCreateInfo.flags`.
+- Enable the device extension `VK_KHR_portability_subset` alongside `VK_KHR_swapchain` when creating the logical device.
+
+Without the first two, instance creation fails with `-9`. Without the device extension, device creation fails.
+
 ### Checking your installed versions
 
 ```
@@ -89,7 +143,9 @@ valgrind --version                           # memory checker
 ├── src/
 │   ├── main.c            # all Vulkan application code
 │   ├── img_lib.c         # custom BMP image loader
-│   └── img_lib.h         # image loader header
+│   ├── img_lib.h         # image loader header
+│   ├── obj_lib.c         # custom OBJ model loader
+│   └── obj_lib.h         # model loader header
 └── texture/
     └── texture.bmp       # texture image (original photo, all rights reserved by author)
 ```
@@ -122,6 +178,44 @@ make test
 # or directly:
 ./draw_tha_Triangle
 ```
+
+### Building manually on macOS
+
+If you are not using the Makefile, compile the shaders and the program by hand from the project root.
+
+**Compile the shaders** with either tool:
+
+```
+glslangValidator -V shaders/shader.vert -o shaders/vert.spv
+glslangValidator -V shaders/shader.frag -o shaders/frag.spv
+```
+
+```
+glslc shaders/shader.vert -o shaders/vert.spv
+glslc shaders/shader.frag -o shaders/frag.spv
+```
+
+**Compile the program** (debug build, validation layers enabled):
+
+```
+clang -g \
+    -I"$(brew --prefix vulkan-headers)/include" \
+    -I"$(brew --prefix glfw)/include" \
+    -I"$(brew --prefix cglm)/include" \
+    src/main.c \
+    src/img_lib.c \
+    src/obj_lib.c \
+    -L"$(brew --prefix vulkan-loader)/lib" \
+    -L"$(brew --prefix glfw)/lib" \
+    -lglfw \
+    -lvulkan \
+    -lm \
+    -o draw_tha_Triangle
+```
+
+For a release build without validation, add `-O2 -DNDEBUG`. Validation is on whenever `NDEBUG` is not defined.
+
+Run it from the project root so the relative paths to the shaders, texture and model resolve, and from a terminal that has the environment variables from the macOS section set.
 
 **Test the image loader standalone:**
 

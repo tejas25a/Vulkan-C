@@ -22,6 +22,11 @@ const char *validationLayers[NumberOfValidationLayer] = {
     "VK_LAYER_KHRONOS_validation"}; /*Must be updated if validationLayers
                                        array is changed*/
 
+#ifdef __APPLE__
+#define NumberOfDeviceExtension 2
+const char *deviceExtensions[NumberOfDeviceExtension] = {
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME, \"VK_KHR_portability_subset\"};
+#else
 #define NumberOfDeviceExtension 1
 const char *deviceExtensions[NumberOfDeviceExtension] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -1809,12 +1814,26 @@ void initvulkan() {
   createInfo.flags = 0;
   createInfo.pApplicationInfo = &appInfo;
 
-  uint32_t glfwExtensionCount = 0;
-  const char **glfwExtensions;
 
-  glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-  createInfo.enabledExtensionCount = glfwExtensionCount;
-  createInfo.ppEnabledExtensionNames = glfwExtensions;
+  int32_t glfwExtensionCount = 0;
+  const char **glfwExtensions =
+      glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+  
+  const char *instanceExtensions[16];
+  uint32_t instanceExtensionCount = 0;
+  for (uint32_t i = 0; i < glfwExtensionCount; ++i)
+    instanceExtensions[instanceExtensionCount++] = glfwExtensions[i];
+  
+  #ifdef __APPLE__
+  instanceExtensions[instanceExtensionCount++] =
+      VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+  instanceExtensions[instanceExtensionCount++] =
+      VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
+  createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+  #endif
+  
+  createInfo.enabledExtensionCount = instanceExtensionCount;
+  createInfo.ppEnabledExtensionNames = instanceExtensions;
 
   if (enableValidationLayers) {
     createInfo.enabledLayerCount = NumberOfValidationLayer;
